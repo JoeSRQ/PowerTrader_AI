@@ -21,17 +21,30 @@ from matplotlib.patches import Rectangle
 from matplotlib.ticker import FuncFormatter
 from matplotlib.transforms import blended_transform_factory
 
-DARK_BG = "#070B10"
-DARK_BG2 = "#0B1220"
-DARK_PANEL = "#0E1626"
-DARK_PANEL2 = "#121C2F"
-DARK_BORDER = "#243044"
-DARK_FG = "#C7D1DB"
-DARK_MUTED = "#8B949E"
-DARK_ACCENT = "#00FF66"   
-DARK_ACCENT2 = "#00E5FF"   
-DARK_SELECT_BG = "#17324A"
-DARK_SELECT_FG = "#00FF66"
+DARK_BG = "#05080E"
+DARK_BG2 = "#0A1018"
+DARK_PANEL = "#0D1520"
+DARK_PANEL2 = "#111D2E"
+DARK_BORDER = "#1E3048"
+DARK_FG = "#D0DAE5"
+DARK_MUTED = "#6B7A8D"
+DARK_ACCENT = "#00E85A"   
+DARK_ACCENT2 = "#00D4FF"   
+DARK_SELECT_BG = "#163050"
+DARK_SELECT_FG = "#00E85A"
+
+# Premium glow / depth palette
+GLOW_GREEN = "#00FF6A"
+GLOW_CYAN = "#00E5FF"
+GLOW_BLUE = "#3388FF"
+GLOW_PURPLE = "#A855F7"
+GLOW_RED = "#FF4466"
+GLOW_ORANGE = "#FF9F43"
+GLOW_YELLOW = "#FFDA44"
+DEPTH_SHADOW = "#020408"
+DEPTH_HIGHLIGHT = "#1A2A40"
+GLASS_BORDER = "#2A4060"
+GLASS_SHINE = "#344E6E"
 
 
 @dataclass
@@ -120,11 +133,11 @@ class NeuralSignalTile(ttk.Frame):
 
         self._hover_on = False
         self._normal_canvas_bg = DARK_PANEL2
-        self._hover_canvas_bg = DARK_PANEL
-        self._normal_border = DARK_BORDER
-        self._hover_border = DARK_ACCENT2
+        self._hover_canvas_bg = "#162438"
+        self._normal_border = GLASS_BORDER
+        self._hover_border = GLOW_CYAN
         self._normal_fg = DARK_FG
-        self._hover_fg = DARK_ACCENT2
+        self._hover_fg = GLOW_CYAN
 
         self._levels = max(2, int(levels))             
         self._display_levels = self._levels - 1        
@@ -134,9 +147,9 @@ class NeuralSignalTile(ttk.Frame):
         self._gap = 16
         self._pad = 6
 
-        self._base_fill = DARK_PANEL
-        self._long_fill = "blue"
-        self._short_fill = "orange"
+        self._base_fill = "#0A1420"
+        self._long_fill = GLOW_BLUE
+        self._short_fill = GLOW_ORANGE
 
         self.title_lbl = ttk.Label(self, text=coin)
         self.title_lbl.pack(anchor="center")
@@ -154,6 +167,10 @@ class NeuralSignalTile(ttk.Frame):
         )
         self.canvas.pack(padx=2, pady=(2, 0))
 
+        # Subtle inner shadow/depth lines
+        self.canvas.create_line(1, 1, w - 1, 1, fill=GLASS_SHINE, width=1)
+        self.canvas.create_line(1, h - 1, w - 1, h - 1, fill=DEPTH_SHADOW, width=1)
+
         x0 = self._pad
         x1 = x0 + self._bar_w
         x2 = x1 + self._gap
@@ -163,17 +180,38 @@ class NeuralSignalTile(ttk.Frame):
         # Build segmented bars: 7 segments for levels 1..7 (level 0 is "no highlight")
         self._long_segs: List[int] = []
         self._short_segs: List[int] = []
+        # Glow overlay items (drawn behind segments for soft glow)
+        self._long_glow: List[int] = []
+        self._short_glow: List[int] = []
 
         for seg in range(self._display_levels):
             # seg=0 is bottom segment (level 1), seg=display_levels-1 is top segment (level 7)
             y_top = int(round(yb - ((seg + 1) * self._bar_h / self._display_levels)))
             y_bot = int(round(yb - (seg * self._bar_h / self._display_levels)))
 
+            # Glow rectangles (slightly larger, behind main segments)
+            self._long_glow.append(
+                self.canvas.create_rectangle(
+                    x0 - 1, y_top - 1, x1 + 1, y_bot + 1,
+                    fill="",
+                    outline="",
+                    width=0,
+                )
+            )
+            self._short_glow.append(
+                self.canvas.create_rectangle(
+                    x2 - 1, y_top - 1, x3 + 1, y_bot + 1,
+                    fill="",
+                    outline="",
+                    width=0,
+                )
+            )
+
             self._long_segs.append(
                 self.canvas.create_rectangle(
                     x0, y_top, x1, y_bot,
                     fill=self._base_fill,
-                    outline=DARK_BORDER,
+                    outline="#152030",
                     width=1,
                 )
             )
@@ -181,7 +219,7 @@ class NeuralSignalTile(ttk.Frame):
                 self.canvas.create_rectangle(
                     x2, y_top, x3, y_bot,
                     fill=self._base_fill,
-                    outline=DARK_BORDER,
+                    outline="#152030",
                     width=1,
                 )
             )
@@ -263,10 +301,14 @@ class NeuralSignalTile(ttk.Frame):
             v = 0
         return max(0, min(v, self._levels - 1))  # logical clamp: 0..7
 
-    def _set_level(self, seg_ids: List[int], level: int, active_fill: str) -> None:
+    def _set_level(self, seg_ids: List[int], level: int, active_fill: str, glow_ids: List[int] = None) -> None:
         # Reset all segments to base
         for rid in seg_ids:
             self.canvas.itemconfigure(rid, fill=self._base_fill)
+        # Reset glow
+        if glow_ids:
+            for gid in glow_ids:
+                self.canvas.itemconfigure(gid, fill="", outline="")
 
         # Level 0 -> show nothing (no highlight)
         if level <= 0:
@@ -279,8 +321,16 @@ class NeuralSignalTile(ttk.Frame):
         if idx >= len(seg_ids):
             idx = len(seg_ids) - 1
 
+        # Compute glow color (dimmed version of active fill)
+        glow_color = active_fill
+
         for i in range(idx + 1):
+            # Intensity gradient: brighter at top of filled range
+            intensity = 0.5 + 0.5 * (i / max(1, idx))
             self.canvas.itemconfigure(seg_ids[i], fill=active_fill)
+            # Apply glow outline to active segments
+            if glow_ids and i < len(glow_ids):
+                self.canvas.itemconfigure(glow_ids[i], outline=glow_color, width=1)
 
 
     def set_values(self, long_sig: Any, short_sig: Any) -> None:
@@ -288,8 +338,8 @@ class NeuralSignalTile(ttk.Frame):
         ss = self._clamp_level(short_sig)
 
         self.value_lbl.config(text=f"L:{ls} S:{ss}")
-        self._set_level(self._long_segs, ls, self._long_fill)
-        self._set_level(self._short_segs, ss, self._short_fill)
+        self._set_level(self._long_segs, ls, self._long_fill, self._long_glow)
+        self._set_level(self._short_segs, ss, self._short_fill, self._short_glow)
 
 
 
@@ -750,7 +800,7 @@ class CandleChart(ttk.Frame):
 
         self.ax = self.fig.add_subplot(111)
         self._apply_dark_chart_style()
-        self.ax.set_title(f"{coin}", color=DARK_FG)
+        self.ax.set_title(f"{coin}", color=GLOW_CYAN, fontsize=11, fontweight='semibold')
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=self)
         canvas_w = self.canvas.get_tk_widget()
@@ -802,14 +852,15 @@ class CandleChart(ttk.Frame):
 
 
     def _apply_dark_chart_style(self) -> None:
-        """Apply dark styling (called on init and after every ax.clear())."""
+        """Apply premium dark styling (called on init and after every ax.clear())."""
         try:
             self.fig.patch.set_facecolor(DARK_BG)
-            self.ax.set_facecolor(DARK_PANEL)
-            self.ax.tick_params(colors=DARK_FG)
+            self.ax.set_facecolor("#0A1018")
+            self.ax.tick_params(colors=DARK_FG, labelsize=8)
             for spine in self.ax.spines.values():
-                spine.set_color(DARK_BORDER)
-            self.ax.grid(True, color=DARK_BORDER, linewidth=0.6, alpha=0.35)
+                spine.set_color(GLASS_BORDER)
+                spine.set_linewidth(0.8)
+            self.ax.grid(True, color=GLASS_BORDER, linewidth=0.4, alpha=0.25, linestyle='--')
         except Exception:
             pass
 
@@ -872,7 +923,7 @@ class CandleChart(ttk.Frame):
 
 
         if not candles:
-            self.ax.set_title(f"{self.coin} ({tf}) - no candles", color=DARK_FG)
+            self.ax.set_title(f"{self.coin} ({tf}) - no candles", color=GLOW_CYAN, fontsize=11)
             self.canvas.draw_idle()
             return
 
@@ -891,7 +942,7 @@ class CandleChart(ttk.Frame):
             l = float(c["low"])
 
             up = cl >= o
-            candle_color = "green" if up else "red"
+            candle_color = "#00D46A" if up else "#FF4466"
 
             # wick
             self.ax.plot([i, i], [l, h], linewidth=1, color=candle_color)
@@ -930,50 +981,57 @@ class CandleChart(ttk.Frame):
 
 
 
-        # Overlay Neural levels (blue long, orange short)
+        # Overlay Neural levels (blue long, orange short) with subtle glow
         for lv in long_levels:
             try:
-                self.ax.axhline(y=float(lv), linewidth=1, color="blue", alpha=0.8)
+                self.ax.axhline(y=float(lv), linewidth=2.0, color=GLOW_BLUE, alpha=0.5)
+                self.ax.axhline(y=float(lv), linewidth=0.8, color=GLOW_BLUE, alpha=0.9)
             except Exception:
                 pass
 
         for lv in short_levels:
             try:
-                self.ax.axhline(y=float(lv), linewidth=1, color="orange", alpha=0.8)
+                self.ax.axhline(y=float(lv), linewidth=2.0, color=GLOW_ORANGE, alpha=0.5)
+                self.ax.axhline(y=float(lv), linewidth=0.8, color=GLOW_ORANGE, alpha=0.9)
             except Exception:
                 pass
 
 
-        # Overlay Trailing PM line (sell) and next DCA line
+        # Overlay Trailing PM line (sell) and next DCA line -- with glow
         try:
             if trail_line is not None and float(trail_line) > 0:
-                self.ax.axhline(y=float(trail_line), linewidth=1.5, color="green", alpha=0.95)
+                self.ax.axhline(y=float(trail_line), linewidth=3.0, color=GLOW_GREEN, alpha=0.25)
+                self.ax.axhline(y=float(trail_line), linewidth=1.5, color=GLOW_GREEN, alpha=0.95)
         except Exception:
             pass
 
         try:
             if dca_line_price is not None and float(dca_line_price) > 0:
-                self.ax.axhline(y=float(dca_line_price), linewidth=1.5, color="red", alpha=0.95)
+                self.ax.axhline(y=float(dca_line_price), linewidth=3.0, color=GLOW_RED, alpha=0.25)
+                self.ax.axhline(y=float(dca_line_price), linewidth=1.5, color=GLOW_RED, alpha=0.95)
         except Exception:
             pass
 
-        # Overlay avg cost basis (yellow)
+        # Overlay avg cost basis (golden glow)
         try:
             if avg_cost_basis is not None and float(avg_cost_basis) > 0:
-                self.ax.axhline(y=float(avg_cost_basis), linewidth=1.5, color="yellow", alpha=0.95)
+                self.ax.axhline(y=float(avg_cost_basis), linewidth=3.0, color=GLOW_YELLOW, alpha=0.25)
+                self.ax.axhline(y=float(avg_cost_basis), linewidth=1.5, color=GLOW_YELLOW, alpha=0.95)
         except Exception:
             pass
 
         # Overlay current ask/bid prices
         try:
             if current_buy_price is not None and float(current_buy_price) > 0:
-                self.ax.axhline(y=float(current_buy_price), linewidth=1.5, color="purple", alpha=0.95)
+                self.ax.axhline(y=float(current_buy_price), linewidth=3.0, color=GLOW_PURPLE, alpha=0.25)
+                self.ax.axhline(y=float(current_buy_price), linewidth=1.5, color=GLOW_PURPLE, alpha=0.95)
         except Exception:
             pass
 
         try:
             if current_sell_price is not None and float(current_sell_price) > 0:
-                self.ax.axhline(y=float(current_sell_price), linewidth=1.5, color="teal", alpha=0.95)
+                self.ax.axhline(y=float(current_sell_price), linewidth=3.0, color=GLOW_CYAN, alpha=0.25)
+                self.ax.axhline(y=float(current_sell_price), linewidth=1.5, color=GLOW_CYAN, alpha=0.95)
         except Exception:
             pass
 
@@ -1020,11 +1078,11 @@ class CandleChart(ttk.Frame):
                 )
 
             # Map to your terminology: Ask=buy line, Bid=sell line
-            _label_right(current_buy_price, "ASK", "purple")
-            _label_right(current_sell_price, "BID", "teal")
-            _label_right(avg_cost_basis, "AVG", "yellow")
-            _label_right(dca_line_price, "DCA", "red")
-            _label_right(trail_line, "SELL", "green")
+            _label_right(current_buy_price, "ASK", GLOW_PURPLE)
+            _label_right(current_sell_price, "BID", GLOW_CYAN)
+            _label_right(avg_cost_basis, "AVG", GLOW_YELLOW)
+            _label_right(dca_line_price, "DCA", GLOW_RED)
+            _label_right(trail_line, "SELL", GLOW_GREEN)
 
         except Exception:
             pass
@@ -1051,10 +1109,10 @@ class CandleChart(ttk.Frame):
 
                     if side == "buy":
                         label = "DCA" if tag == "DCA" else "BUY"
-                        color = "purple" if tag == "DCA" else "red"
+                        color = GLOW_PURPLE if tag == "DCA" else GLOW_RED
                     elif side == "sell":
                         label = "SELL"
-                        color = "green"
+                        color = GLOW_GREEN
                     else:
                         continue
 
@@ -1110,7 +1168,7 @@ class CandleChart(ttk.Frame):
 
         self.ax.set_xlim(-0.5, (len(candles) - 0.5) + 0.6)
 
-        self.ax.set_title(f"{self.coin} ({tf})", color=DARK_FG)
+        self.ax.set_title(f"{self.coin} ({tf})", color=GLOW_CYAN, fontsize=11, fontweight='semibold')
 
 
 
@@ -1199,7 +1257,7 @@ class AccountValueChart(ttk.Frame):
 
         self.ax = self.fig.add_subplot(111)
         self._apply_dark_chart_style()
-        self.ax.set_title("Account Value", color=DARK_FG)
+        self.ax.set_title("Account Value", color=GLOW_CYAN, fontsize=11, fontweight='semibold')
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=self)
         canvas_w = self.canvas.get_tk_widget()
@@ -1251,11 +1309,12 @@ class AccountValueChart(ttk.Frame):
     def _apply_dark_chart_style(self) -> None:
         try:
             self.fig.patch.set_facecolor(DARK_BG)
-            self.ax.set_facecolor(DARK_PANEL)
-            self.ax.tick_params(colors=DARK_FG)
+            self.ax.set_facecolor("#0A1018")
+            self.ax.tick_params(colors=DARK_FG, labelsize=8)
             for spine in self.ax.spines.values():
-                spine.set_color(DARK_BORDER)
-            self.ax.grid(True, color=DARK_BORDER, linewidth=0.6, alpha=0.35)
+                spine.set_color(GLASS_BORDER)
+                spine.set_linewidth(0.8)
+            self.ax.grid(True, color=GLASS_BORDER, linewidth=0.4, alpha=0.25, linestyle='--')
         except Exception:
             pass
 
@@ -1383,7 +1442,7 @@ class AccountValueChart(ttk.Frame):
 
 
         if not points:
-            self.ax.set_title("Account Value - no data", color=DARK_FG)
+            self.ax.set_title("Account Value - no data", color=GLOW_CYAN, fontsize=11)
             self.last_update_label.config(text="Last: N/A")
             self.canvas.draw_idle()
             return
@@ -1392,7 +1451,13 @@ class AccountValueChart(ttk.Frame):
         # Only show cent-level changes (hide sub-cent noise)
         ys = [round(p[1], 2) for p in points]
 
-        self.ax.plot(xs, ys, linewidth=1.5)
+        self.ax.plot(xs, ys, linewidth=2.5, color=GLOW_CYAN, alpha=0.3)
+        self.ax.plot(xs, ys, linewidth=1.5, color=GLOW_CYAN, alpha=0.9)
+        # Subtle fill under the line
+        try:
+            self.ax.fill_between(xs, ys, min(ys) if ys else 0, alpha=0.08, color=GLOW_CYAN)
+        except Exception:
+            pass
 
         # --- Trade dots (BUY / DCA / SELL) for ALL coins ---
         try:
@@ -1409,10 +1474,10 @@ class AccountValueChart(ttk.Frame):
 
                     if side == "buy":
                         action_label = "DCA" if tag == "DCA" else "BUY"
-                        color = "purple" if tag == "DCA" else "red"
+                        color = GLOW_PURPLE if tag == "DCA" else GLOW_RED
                     elif side == "sell":
                         action_label = "SELL"
-                        color = "green"
+                        color = GLOW_GREEN
                     else:
                         continue
 
@@ -1498,9 +1563,9 @@ class AccountValueChart(ttk.Frame):
         self.ax.set_xlim(-0.5, (len(points) - 0.5) + 0.6)
 
         try:
-            self.ax.set_title(f"Account Value ({_fmt_money(ys[-1])})", color=DARK_FG)
+            self.ax.set_title(f"Account Value ({_fmt_money(ys[-1])})", color=GLOW_CYAN, fontsize=11, fontweight='semibold')
         except Exception:
-            self.ax.set_title("Account Value", color=DARK_FG)
+            self.ax.set_title("Account Value", color=GLOW_CYAN, fontsize=11, fontweight='semibold')
 
         try:
             self.last_update_label.config(
@@ -1541,7 +1606,7 @@ class LogProc:
 class PowerTraderHub(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("PowerTrader - Hub")
+        self.title("⚡ PowerTrader AI — Hub")
         self.geometry("1400x820")
 
         # Hard minimum window size so the UI can't be shrunk to a point where panes vanish.
@@ -1646,7 +1711,7 @@ class PowerTraderHub(tk.Tk):
     # ---- forced dark mode ----
 
     def _apply_forced_dark_mode(self) -> None:
-        """Force a single, global, non-optional dark theme."""
+        """Force a premium, global dark theme with Apple-inspired depth and glow."""
         # Root background (handles the areas behind ttk widgets)
         try:
             self.configure(bg=DARK_BG)
@@ -1655,21 +1720,21 @@ class PowerTraderHub(tk.Tk):
 
         # Defaults for classic Tk widgets (Text/Listbox/Menu) created later
         try:
-            self.option_add("*Text.background", DARK_PANEL)
+            self.option_add("*Text.background", "#0A1018")
             self.option_add("*Text.foreground", DARK_FG)
-            self.option_add("*Text.insertBackground", DARK_FG)
+            self.option_add("*Text.insertBackground", GLOW_CYAN)
             self.option_add("*Text.selectBackground", DARK_SELECT_BG)
-            self.option_add("*Text.selectForeground", DARK_SELECT_FG)
+            self.option_add("*Text.selectForeground", GLOW_GREEN)
 
-            self.option_add("*Listbox.background", DARK_PANEL)
+            self.option_add("*Listbox.background", "#0A1018")
             self.option_add("*Listbox.foreground", DARK_FG)
             self.option_add("*Listbox.selectBackground", DARK_SELECT_BG)
-            self.option_add("*Listbox.selectForeground", DARK_SELECT_FG)
+            self.option_add("*Listbox.selectForeground", GLOW_GREEN)
 
-            self.option_add("*Menu.background", DARK_BG2)
+            self.option_add("*Menu.background", "#0A1220")
             self.option_add("*Menu.foreground", DARK_FG)
-            self.option_add("*Menu.activeBackground", DARK_SELECT_BG)
-            self.option_add("*Menu.activeForeground", DARK_SELECT_FG)
+            self.option_add("*Menu.activeBackground", "#163050")
+            self.option_add("*Menu.activeForeground", GLOW_CYAN)
         except Exception:
             pass
 
@@ -1683,7 +1748,7 @@ class PowerTraderHub(tk.Tk):
 
         # Base defaults
         try:
-            style.configure(".", background=DARK_BG, foreground=DARK_FG)
+            style.configure(".", background=DARK_BG, foreground=DARK_FG, font=("Segoe UI", 9))
         except Exception:
             pass
 
@@ -1695,54 +1760,63 @@ class PowerTraderHub(tk.Tk):
                 pass
 
         try:
-            style.configure("TLabelframe", background=DARK_BG, foreground=DARK_FG, bordercolor=DARK_BORDER)
-            style.configure("TLabelframe.Label", background=DARK_BG, foreground=DARK_ACCENT)
+            style.configure("TLabelframe", background=DARK_BG, foreground=DARK_FG, bordercolor=GLASS_BORDER)
+            style.configure("TLabelframe.Label", background=DARK_BG, foreground=GLOW_CYAN, font=("Segoe UI Semibold", 9))
         except Exception:
             pass
 
         try:
-            style.configure("TSeparator", background=DARK_BORDER)
+            style.configure("TSeparator", background=GLASS_BORDER)
         except Exception:
             pass
 
-        # Buttons
+        # Buttons — 3D glass-like depth
         try:
             style.configure(
                 "TButton",
-                background=DARK_BG2,
+                background="#111E30",
                 foreground=DARK_FG,
-                bordercolor=DARK_BORDER,
+                bordercolor=GLASS_BORDER,
+                lightcolor=GLASS_SHINE,
+                darkcolor=DEPTH_SHADOW,
                 focusthickness=1,
-                focuscolor=DARK_ACCENT,
-                padding=(10, 6),
+                focuscolor=GLOW_GREEN,
+                padding=(12, 7),
+                relief="raised",
             )
             style.map(
                 "TButton",
                 background=[
-                    ("active", DARK_PANEL2),
-                    ("pressed", DARK_PANEL),
+                    ("active", "#182A42"),
+                    ("pressed", "#0E1A2A"),
                     ("disabled", DARK_BG2),
                 ],
                 foreground=[
-                    ("active", DARK_ACCENT),
+                    ("active", GLOW_CYAN),
                     ("disabled", DARK_MUTED),
                 ],
                 bordercolor=[
-                    ("active", DARK_ACCENT2),
-                    ("focus", DARK_ACCENT),
+                    ("active", GLOW_CYAN),
+                    ("focus", GLOW_GREEN),
+                ],
+                lightcolor=[
+                    ("active", GLOW_CYAN),
+                    ("pressed", DEPTH_SHADOW),
                 ],
             )
         except Exception:
             pass
 
-        # Entries / combos
+        # Entries / combos — frosted glass feel
         try:
             style.configure(
                 "TEntry",
-                fieldbackground=DARK_PANEL,
+                fieldbackground="#0A1420",
                 foreground=DARK_FG,
-                bordercolor=DARK_BORDER,
-                insertcolor=DARK_FG,
+                bordercolor=GLASS_BORDER,
+                lightcolor=GLASS_SHINE,
+                darkcolor=DEPTH_SHADOW,
+                insertcolor=GLOW_CYAN,
             )
         except Exception:
             pass
@@ -1750,37 +1824,40 @@ class PowerTraderHub(tk.Tk):
         try:
             style.configure(
                 "TCombobox",
-                fieldbackground=DARK_PANEL,
-                background=DARK_PANEL,
+                fieldbackground="#0A1420",
+                background="#111E30",
                 foreground=DARK_FG,
-                bordercolor=DARK_BORDER,
-                arrowcolor=DARK_ACCENT,
+                bordercolor=GLASS_BORDER,
+                lightcolor=GLASS_SHINE,
+                darkcolor=DEPTH_SHADOW,
+                arrowcolor=GLOW_CYAN,
             )
             style.map(
                 "TCombobox",
                 fieldbackground=[
-                    ("readonly", DARK_PANEL),
-                    ("focus", DARK_PANEL2),
+                    ("readonly", "#0A1420"),
+                    ("focus", "#0E1A2E"),
                 ],
                 foreground=[("readonly", DARK_FG)],
-                background=[("readonly", DARK_PANEL)],
+                background=[("readonly", "#111E30")],
             )
         except Exception:
             pass
 
-        # Notebooks
+        # Notebooks — premium tab styling
         try:
-            style.configure("TNotebook", background=DARK_BG, bordercolor=DARK_BORDER)
-            style.configure("TNotebook.Tab", background=DARK_BG2, foreground=DARK_FG, padding=(10, 6))
+            style.configure("TNotebook", background=DARK_BG, bordercolor=GLASS_BORDER)
+            style.configure("TNotebook.Tab", background="#0E1828", foreground=DARK_FG, padding=(12, 7),
+                            bordercolor=GLASS_BORDER, lightcolor=GLASS_SHINE, darkcolor=DEPTH_SHADOW)
             style.map(
                 "TNotebook.Tab",
                 background=[
-                    ("selected", DARK_PANEL),
-                    ("active", DARK_PANEL2),
+                    ("selected", "#142236"),
+                    ("active", "#111E30"),
                 ],
                 foreground=[
-                    ("selected", DARK_ACCENT),
-                    ("active", DARK_ACCENT2),
+                    ("selected", GLOW_CYAN),
+                    ("active", GLOW_GREEN),
                 ],
             )
 
@@ -1806,61 +1883,70 @@ class PowerTraderHub(tk.Tk):
                 ],
             )
 
-            # Wrapping chart-tab buttons (normal + selected)
+            # Wrapping chart-tab buttons (normal + selected) — glass depth
             style.configure(
                 "ChartTab.TButton",
-                background=DARK_BG2,
+                background="#0E1828",
                 foreground=DARK_FG,
-                bordercolor=DARK_BORDER,
-                padding=(10, 6),
+                bordercolor=GLASS_BORDER,
+                lightcolor=GLASS_SHINE,
+                darkcolor=DEPTH_SHADOW,
+                padding=(12, 7),
             )
             style.map(
                 "ChartTab.TButton",
-                background=[("active", DARK_PANEL2), ("pressed", DARK_PANEL)],
-                foreground=[("active", DARK_ACCENT2)],
-                bordercolor=[("active", DARK_ACCENT2), ("focus", DARK_ACCENT)],
+                background=[("active", "#182A42"), ("pressed", "#0E1A2A")],
+                foreground=[("active", GLOW_CYAN)],
+                bordercolor=[("active", GLOW_CYAN), ("focus", GLOW_GREEN)],
             )
 
             style.configure(
                 "ChartTabSelected.TButton",
-                background=DARK_PANEL,
-                foreground=DARK_ACCENT,
-                bordercolor=DARK_ACCENT2,
-                padding=(10, 6),
+                background="#142236",
+                foreground=GLOW_CYAN,
+                bordercolor=GLOW_CYAN,
+                lightcolor=GLOW_CYAN,
+                darkcolor=DEPTH_SHADOW,
+                padding=(12, 7),
             )
         except Exception:
             pass
 
 
-        # Treeview (Current Trades table)
+        # Treeview (Current Trades table) — frosted glass rows
         try:
             style.configure(
                 "Treeview",
-                background=DARK_PANEL,
-                fieldbackground=DARK_PANEL,
+                background="#0A1420",
+                fieldbackground="#0A1420",
                 foreground=DARK_FG,
-                bordercolor=DARK_BORDER,
-                lightcolor=DARK_BORDER,
-                darkcolor=DARK_BORDER,
+                bordercolor=GLASS_BORDER,
+                lightcolor=GLASS_BORDER,
+                darkcolor=DEPTH_SHADOW,
+                rowheight=26,
             )
             style.map(
                 "Treeview",
-                background=[("selected", DARK_SELECT_BG)],
-                foreground=[("selected", DARK_SELECT_FG)],
+                background=[("selected", "#163050")],
+                foreground=[("selected", GLOW_CYAN)],
             )
 
-            style.configure("Treeview.Heading", background=DARK_BG2, foreground=DARK_ACCENT, relief="flat")
+            style.configure("Treeview.Heading", background="#0E1828", foreground=GLOW_CYAN,
+                            relief="flat", bordercolor=GLASS_BORDER, lightcolor=GLASS_SHINE,
+                            darkcolor=DEPTH_SHADOW, font=("Segoe UI Semibold", 8))
             style.map(
                 "Treeview.Heading",
-                background=[("active", DARK_PANEL2)],
-                foreground=[("active", DARK_ACCENT2)],
+                background=[("active", "#142236")],
+                foreground=[("active", GLOW_GREEN)],
             )
         except Exception:
             pass
 
-        # Panedwindows / scrollbars
+        # Panedwindows / scrollbars — premium depth
         try:
             style.configure("TPanedwindow", background=DARK_BG)
+            # Paned sash with subtle highlight
+            style.configure("Sash", sashthickness=4, handlesize=8, background=GLASS_BORDER)
         except Exception:
             pass
 
@@ -1868,10 +1954,12 @@ class PowerTraderHub(tk.Tk):
             try:
                 style.configure(
                     sb,
-                    background=DARK_BG2,
-                    troughcolor=DARK_BG,
-                    bordercolor=DARK_BORDER,
-                    arrowcolor=DARK_ACCENT,
+                    background="#111E30",
+                    troughcolor="#060A10",
+                    bordercolor=GLASS_BORDER,
+                    arrowcolor=GLOW_CYAN,
+                    lightcolor=GLASS_SHINE,
+                    darkcolor=DEPTH_SHADOW,
                 )
             except Exception:
                 pass
@@ -1943,10 +2031,10 @@ class PowerTraderHub(tk.Tk):
     def _build_menu(self) -> None:
         menubar = tk.Menu(
             self,
-            bg=DARK_BG2,
+            bg="#0A1220",
             fg=DARK_FG,
-            activebackground=DARK_SELECT_BG,
-            activeforeground=DARK_SELECT_FG,
+            activebackground="#163050",
+            activeforeground=GLOW_CYAN,
             bd=0,
             relief="flat",
         )
@@ -1954,10 +2042,10 @@ class PowerTraderHub(tk.Tk):
         m_scripts = tk.Menu(
             menubar,
             tearoff=0,
-            bg=DARK_BG2,
+            bg="#0A1220",
             fg=DARK_FG,
-            activebackground=DARK_SELECT_BG,
-            activeforeground=DARK_SELECT_FG,
+            activebackground="#163050",
+            activeforeground=GLOW_CYAN,
         )
         m_scripts.add_command(label="Start All", command=self.start_all_scripts)
         m_scripts.add_command(label="Stop All", command=self.stop_all_scripts)
@@ -1972,10 +2060,10 @@ class PowerTraderHub(tk.Tk):
         m_settings = tk.Menu(
             menubar,
             tearoff=0,
-            bg=DARK_BG2,
+            bg="#0A1220",
             fg=DARK_FG,
-            activebackground=DARK_SELECT_BG,
-            activeforeground=DARK_SELECT_FG,
+            activebackground="#163050",
+            activeforeground=GLOW_CYAN,
         )
         m_settings.add_command(label="Settings...", command=self.open_settings_dialog)
         menubar.add_cascade(label="Settings", menu=m_settings)
@@ -1983,10 +2071,10 @@ class PowerTraderHub(tk.Tk):
         m_file = tk.Menu(
             menubar,
             tearoff=0,
-            bg=DARK_BG2,
+            bg="#0A1220",
             fg=DARK_FG,
-            activebackground=DARK_SELECT_BG,
-            activeforeground=DARK_SELECT_FG,
+            activebackground="#163050",
+            activeforeground=GLOW_CYAN,
         )
         m_file.add_command(label="Exit", command=self._on_close)
         menubar.add_cascade(label="File", menu=m_file)
@@ -2268,13 +2356,15 @@ class PowerTraderHub(tk.Tk):
         self.training_list = tk.Listbox(
             training_left,
             height=5,
-            bg=DARK_PANEL,
-            fg=DARK_FG,
-            selectbackground=DARK_SELECT_BG,
-            selectforeground=DARK_SELECT_FG,
-            highlightbackground=DARK_BORDER,
-            highlightcolor=DARK_ACCENT,
+            bg="#080E18",
+            fg="#A8B8CC",
+            selectbackground="#163050",
+            selectforeground=GLOW_CYAN,
+            highlightbackground=GLASS_BORDER,
+            highlightcolor=GLOW_CYAN,
             activestyle="none",
+            relief="flat",
+            bd=1,
         )
         self.training_list.pack(fill="both", expand=True, padx=6, pady=(0, 6))
 
@@ -2331,9 +2421,9 @@ class PowerTraderHub(tk.Tk):
 
         ttk.Label(legend, text="Level bars: 0 = bottom, 7 = top").pack(side="left")
         ttk.Label(legend, text="   ").pack(side="left")
-        ttk.Label(legend, text="Blue = Long").pack(side="left")
+        ttk.Label(legend, text="Blue = Long", foreground=GLOW_BLUE).pack(side="left")
         ttk.Label(legend, text="  ").pack(side="left")
-        ttk.Label(legend, text="Orange = Short").pack(side="left")
+        ttk.Label(legend, text="Orange = Short", foreground=GLOW_ORANGE).pack(side="left")
 
         self.lbl_neural_overview_last = ttk.Label(legend, text="Last: N/A")
         self.lbl_neural_overview_last.pack(side="right")
@@ -2346,9 +2436,9 @@ class PowerTraderHub(tk.Tk):
 
         self._neural_overview_canvas = tk.Canvas(
             neural_viewport,
-            bg=DARK_PANEL2,
+            bg="#080E18",
             highlightthickness=1,
-            highlightbackground=DARK_BORDER,
+            highlightbackground=GLASS_BORDER,
             bd=0,
         )
         self._neural_overview_canvas.grid(row=0, column=0, sticky="nsew")
@@ -2460,13 +2550,16 @@ class PowerTraderHub(tk.Tk):
             height=8,
             wrap="none",
             font=self._live_log_font,
-            bg=DARK_PANEL,
-            fg=DARK_FG,
-            insertbackground=DARK_FG,
-            selectbackground=DARK_SELECT_BG,
-            selectforeground=DARK_SELECT_FG,
-            highlightbackground=DARK_BORDER,
-            highlightcolor=DARK_ACCENT,
+            bg="#080E18",
+            fg="#A8B8CC",
+            insertbackground=GLOW_CYAN,
+            selectbackground="#163050",
+            selectforeground=GLOW_GREEN,
+            highlightbackground=GLASS_BORDER,
+            highlightcolor=GLOW_CYAN,
+            relief="flat",
+            padx=6,
+            pady=4,
         )
 
         runner_scroll = ttk.Scrollbar(runner_tab, orient="vertical", command=self.runner_text.yview)
@@ -2482,13 +2575,16 @@ class PowerTraderHub(tk.Tk):
             height=8,
             wrap="none",
             font=self._live_log_font,
-            bg=DARK_PANEL,
-            fg=DARK_FG,
-            insertbackground=DARK_FG,
-            selectbackground=DARK_SELECT_BG,
-            selectforeground=DARK_SELECT_FG,
-            highlightbackground=DARK_BORDER,
-            highlightcolor=DARK_ACCENT,
+            bg="#080E18",
+            fg="#A8B8CC",
+            insertbackground=GLOW_CYAN,
+            selectbackground="#163050",
+            selectforeground=GLOW_GREEN,
+            highlightbackground=GLASS_BORDER,
+            highlightcolor=GLOW_CYAN,
+            relief="flat",
+            padx=6,
+            pady=4,
         )
 
         trader_scroll = ttk.Scrollbar(trader_tab, orient="vertical", command=self.trader_text.yview)
@@ -2525,13 +2621,16 @@ class PowerTraderHub(tk.Tk):
             height=8,
             wrap="none",
             font=self._live_log_font,
-            bg=DARK_PANEL,
-            fg=DARK_FG,
-            insertbackground=DARK_FG,
-            selectbackground=DARK_SELECT_BG,
-            selectforeground=DARK_SELECT_FG,
-            highlightbackground=DARK_BORDER,
-            highlightcolor=DARK_ACCENT,
+            bg="#080E18",
+            fg="#A8B8CC",
+            insertbackground=GLOW_CYAN,
+            selectbackground="#163050",
+            selectforeground=GLOW_GREEN,
+            highlightbackground=GLASS_BORDER,
+            highlightcolor=GLOW_CYAN,
+            relief="flat",
+            padx=6,
+            pady=4,
         )
 
         trainer_scroll = ttk.Scrollbar(trainer_tab, orient="vertical", command=self.trainer_text.yview)
